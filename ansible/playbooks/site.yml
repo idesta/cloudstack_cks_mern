@@ -1,0 +1,12 @@
+---
+# 1. Import the standalone verification playbook
+# This runs the logic we combined in the previous step
+- import_playbook: verify.yml
+
+# 2. Call the Role for any additional task-based checks
+# Note: Roles must be called within a 'play' (hosts + roles)
+- name: Extended Role-Based Verification
+  hosts: masters
+  become: yes
+  roles:
+    - cluster_verify

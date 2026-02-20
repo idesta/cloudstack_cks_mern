@@ -1,0 +1,50 @@
+---
+- name: Verify Managed CloudStack Kubernetes Cluster
+  hosts: masters
+  gather_facts: no
+  become: yes # This replaces the need to type 'sudo' in every command
+
+  # Define the path as a variable so you only have to change it once
+  vars:
+    kubectl_path: /opt/bin/kubectl
+
+  tasks:
+    - name: 1. Wait for Nodes to reach 'Ready' status
+      command: "{{ kubectl_path }} get nodes"
+      register: nodes_status
+      until: nodes_status.stdout.find('Ready') != -1
+      retries: 30
+      delay: 20
+      changed_when: false
+
+    - name: Display Node Status
+      debug:
+        var: nodes_status.stdout_lines
+
+    - name: 2. Count Ready Nodes
+      set_fact:
+        ready_count: "{{ nodes_status.stdout | regex_findall(' Ready') | length }}"
+
+    - name: 3. Verify Cluster Sizing (Master + Worker)
+      fail:
+        msg: "Cluster sizing mismatch! Expected at least 2 ready nodes, found {{ ready_count }}."
+      when: ready_count | int < 2
+
+    - name: 4. Check Core System Pods (kube-system)
+      command: "{{ kubectl_path }} get pods -n kube-system"
+      register: pods_status
+
+    - name: 5. Verify Calico CNI is Running
+      # Added a check to ensure we actually find calico pods before failing
+      fail:
+        msg: "Calico CNI pods are not running. Network overlay may be failing."
+      when:
+        - "'calico' in pods_status.stdout"
+        - "'Running' not in pods_status.stdout"
+
+    - name: 6. Display Cluster Summary
+      debug:
+        msg:
+          - "--- CLUSTER HEALTH REPORT ---"
+          - "Total Ready Nodes: {{ ready_count }}"
+          - "Result: Managed Cluster is UP and ready for MERN deployment."

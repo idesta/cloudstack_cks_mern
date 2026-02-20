@@ -1,0 +1,52 @@
+---
+# 1. Node & Control Plane Health
+- name: Verify all nodes are in Ready state
+  shell: kubectl get nodes --no-headers
+  register: node_status
+  # 1 Master + 1 Worker = 2 lines minimum
+  failed_when: "'NotReady' in node_status.stdout or node_status.stdout_lines | length < 2"
+
+- name: Check if CoreDNS pods are running
+  shell: kubectl get pods -n kube-system -l k8s-app=kube-dns --no-headers
+  register: coredns_status
+  until: "'Running' in coredns_status.stdout"
+  retries: 10
+  delay: 15
+
+# 2. CSI Driver Verification (Enabled via GUI)
+- name: Check CloudStack CSI driver pods are Running
+  shell: kubectl get pods -n kube-system | grep csi
+  register: csi_check
+  until: "csi_check.stdout_lines | length > 0 and 'Running' in csi_check.stdout"
+  retries: 10
+  delay: 15
+
+# 3. Storage Provisioning (Enabling the 10GB usage)
+- name: Ensure CloudStack StorageClass exists
+  shell: |
+    cat <<EOF | kubectl apply -f -
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: cloudstack-standard
+      annotations:
+        storageclass.kubernetes.io/is-default-class: "true"
+    provisioner: csi.cloudstack.apache.org
+    allowVolumeExpansion: true
+    volumeBindingMode: WaitForFirstConsumer
+    EOF
+  register: sc_creation
+
+- name: Verify Storage Class is now available in K8s
+  shell: kubectl get sc
+  register: sc_out
+  failed_when: "'cloudstack-standard' not in sc_out.stdout"
+
+# 4. Final Summary
+- name: Log Cluster Status
+  debug:
+    msg:
+      - "--- INFRASTRUCTURE VERIFIED ---"
+      - "Nodes: 1 Master + 1 Worker are Ready."
+      - "Storage: 'cloudstack-standard' StorageClass is active (10GB Provisioning ready)."
+      - "Next Step: Apply Kubernetes YAMLs for Secrets and MERN Deployment."
